@@ -23,6 +23,7 @@ int main(int argc, char **argv)
     if (run) {
         if (debug) cmd_append(&cmd, "gf2");
         cmd_append(&cmd, "./main");
+        cmd_append(&cmd, "./coding.png");
         if (!cmd_run(&cmd)) return 1;
     }
 

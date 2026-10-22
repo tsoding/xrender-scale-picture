@@ -15,8 +15,31 @@
 
 double update_scale(int window_width, int window_height, int pog_width, int pog_height, Display *display, Picture pog_picture);
 
-int main()
+int main(int argc, char **argv)
 {
+    const char *program_name = shift(argv, argc);
+
+    if (argc <= 0) {
+        fprintf(stderr, "Usage: %s image.png\n", program_name);
+        fprintf(stderr, "ERROR: no image file is provided\n");
+        return 1;
+    }
+
+    const char *pog_file_path = shift(argv, argc);
+    int pog_width, pog_height;
+    struct { uint8_t r, g, b, a; } *pog_pixels = (void*)stbi_load(pog_file_path, &pog_width, &pog_height, NULL, 4);
+    if (!pog_pixels) {
+        fprintf(stderr, "ERROR: could not load %s\n", pog_file_path);
+        return 1;
+    }
+    printf("Loaded %s %dx%d\n", pog_file_path, pog_width, pog_height);
+    for (int i = 0; i < pog_width*pog_height; ++i) {
+        uint8_t r = pog_pixels[i].r;
+        uint8_t b = pog_pixels[i].b;
+        pog_pixels[i].r = b;
+        pog_pixels[i].b = r;
+    }
+
     Display *display = XOpenDisplay(NULL);
     if (display == NULL) {
         fprintf(stderr, "ERROR: Could not open X display\n");
@@ -44,21 +67,6 @@ int main()
     XGetWindowAttributes(display, window, &wa);
 
     GC gc = XCreateGC(display, window, 0, NULL);
-
-    const char *pog_file_path = "tsodinPog.png";
-    int pog_width, pog_height;
-    struct { uint8_t r, g, b, a; } *pog_pixels = (void*)stbi_load(pog_file_path, &pog_width, &pog_height, NULL, 4);
-    if (!pog_pixels) {
-        fprintf(stderr, "ERROR: could not load %s\n", pog_file_path);
-        return 1;
-    }
-    printf("Loaded %s %dx%d\n", pog_file_path, pog_width, pog_height);
-    for (int i = 0; i < pog_width*pog_height; ++i) {
-        uint8_t r = pog_pixels[i].r;
-        uint8_t b = pog_pixels[i].b;
-        pog_pixels[i].r = b;
-        pog_pixels[i].b = r;
-    }
 
     XImage *pog_image = XCreateImage(display, wa.visual, wa.depth, ZPixmap, 0, (void*)pog_pixels, pog_width, pog_height, 32, pog_width*sizeof(*pog_pixels));
     printf("pog_image = %p\n", pog_image);
@@ -126,7 +134,7 @@ int main()
 double update_scale(int window_width, int window_height, int pog_width, int pog_height, Display *display, Picture pog_picture)
 {
     double scale;
-    if (window_height < window_width) {
+    if ((double)pog_width/pog_height < (double)window_width/window_height) {
         scale = (double)pog_height/window_height;
     } else {
         scale = (double)pog_width/window_width;
