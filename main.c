@@ -1,12 +1,19 @@
-#include <X11/Xlib.h>
-#include <X11/extensions/Xrender.h>
 #include <stdio.h>
 #include <stdbool.h>
+
+#include <unistd.h>
+
+#include <X11/Xlib.h>
+#include <X11/extensions/Xrender.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "nob.h"
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
+
+double update_scale(int window_width, int window_height, int pog_width, int pog_height, Display *display, Picture pog_picture);
 
 int main()
 {
@@ -38,26 +45,25 @@ int main()
 
     GC gc = XCreateGC(display, window, 0, NULL);
 
-    const char *file_path = "tsodinPog.png";
-    int width, height;
-    struct {
-        uint8_t r, g, b, a;
-    } *pixels = (void*)stbi_load(file_path, &width, &height, NULL, 4);
-    if (!pixels) {
-        fprintf(stderr, "ERROR: could not load %s\n", file_path);
+    const char *pog_file_path = "tsodinPog.png";
+    int pog_width, pog_height;
+    struct { uint8_t r, g, b, a; } *pog_pixels = (void*)stbi_load(pog_file_path, &pog_width, &pog_height, NULL, 4);
+    if (!pog_pixels) {
+        fprintf(stderr, "ERROR: could not load %s\n", pog_file_path);
         return 1;
     }
-    printf("Loaded %s %dx%d\n", file_path, width, height);
-    for (int i = 0; i < width*height; ++i) {
-        uint8_t t = pixels[i].r;
-        pixels[i].r = pixels[i].b;
-        pixels[i].b = t;
+    printf("Loaded %s %dx%d\n", pog_file_path, pog_width, pog_height);
+    for (int i = 0; i < pog_width*pog_height; ++i) {
+        uint8_t r = pog_pixels[i].r;
+        uint8_t b = pog_pixels[i].b;
+        pog_pixels[i].r = b;
+        pog_pixels[i].b = r;
     }
 
-    XImage *pog_image = XCreateImage(display, wa.visual, wa.depth, ZPixmap, 0, (void*)pixels, width, height, 32, width*sizeof(*pixels));
+    XImage *pog_image = XCreateImage(display, wa.visual, wa.depth, ZPixmap, 0, (void*)pog_pixels, pog_width, pog_height, 32, pog_width*sizeof(*pog_pixels));
     printf("pog_image = %p\n", pog_image);
-    Pixmap pog_pixmap = XCreatePixmap(display, window, width, height, 24);
-    XPutImage(display, pog_pixmap, gc, pog_image, 0, 0, 0, 0, width, height);
+    Pixmap pog_pixmap = XCreatePixmap(display, window, pog_width, pog_height, 24);
+    XPutImage(display, pog_pixmap, gc, pog_image, 0, 0, 0, 0, pog_width, pog_height);
 
     XRenderPictFormat *format = XRenderFindVisualFormat(display, wa.visual);
 
@@ -75,16 +81,13 @@ int main()
                     | ButtonReleaseMask;
     XSelectInput(display, window, event_mask);
 
-    XStoreName(display, window, "XRender Test");
+    XStoreName(display, window, "XRender Scale Picture");
 
     XMapWindow(display, window);
 
-    XTransform double_scale = {{
-        {XDoubleToFixed(0.5), XDoubleToFixed(0), XDoubleToFixed(0)},
-        {XDoubleToFixed(0), XDoubleToFixed(0.5), XDoubleToFixed(0)},
-        {XDoubleToFixed(0), XDoubleToFixed(0), XDoubleToFixed(1.0)}
-    }};
-    XRenderSetPictureTransform(display, pog_picture, &double_scale);
+    int window_width  = wa.width;
+    int window_height = wa.height;
+    double scale = update_scale(window_width, window_height, pog_width, pog_height, display, pog_picture);
 
     bool quit = false;
     while (!quit) {
@@ -97,15 +100,42 @@ int main()
                     quit = true;
                 }
             } break;
+            case ConfigureNotify: {
+                if (window_width != event.xconfigure.width || window_height != event.xconfigure.height) {
+                    window_width  = event.xconfigure.width;
+                    window_height = event.xconfigure.height;
+                    scale         = update_scale(window_width, window_height, pog_width, pog_height, display, pog_picture);
+                    XClearWindow(display, window);
+                }
+            } break;
             }
         }
 
         // XRenderColor color = { .red = 0xFFFF, .alpha = 0xFFFF };
         // XRenderFillRectangle(display, PictOpSrc, dst, &color, 0, 0, 100, 100);
 
-        XRenderComposite (display, PictOpSrc, pog_picture, None, dst, 0, 0, 0, 0, 0, 0, 2*width, 2*height);
+        int scaled_pog_width  = (1/scale)*pog_width;
+        int scaled_pog_height = (1/scale)*pog_height;
+        XRenderComposite(display, PictOpSrc, pog_picture, None, dst, 0, 0, 0, 0, window_width/2 - scaled_pog_width/2, window_height/2 - scaled_pog_height/2, scaled_pog_width, scaled_pog_height);
+        usleep(16000);
     }
 
-    printf("OK\n");
     return 0;
+}
+
+double update_scale(int window_width, int window_height, int pog_width, int pog_height, Display *display, Picture pog_picture)
+{
+    double scale;
+    if (window_height < window_width) {
+        scale = (double)pog_height/window_height;
+    } else {
+        scale = (double)pog_width/window_width;
+    }
+    XTransform transform = {{
+        {XDoubleToFixed(scale), XDoubleToFixed(0),     XDoubleToFixed(0)  },
+        {XDoubleToFixed(0),     XDoubleToFixed(scale), XDoubleToFixed(0)  },
+        {XDoubleToFixed(0),     XDoubleToFixed(0),     XDoubleToFixed(1.0)},
+    }};
+    XRenderSetPictureTransform(display, pog_picture, &transform);
+    return scale;
 }
